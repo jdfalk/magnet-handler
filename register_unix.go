@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 )
 
 // RegisterProtocolHandler registers the magnet protocol handler on Unix systems
@@ -28,17 +29,11 @@ func RegisterProtocolHandler(exePath string) error {
 		fmt.Println("You can edit this file to customize settings")
 	}
 
-	// Check if we're on Linux or macOS
-	if isLinux() {
+	// Use runtime.GOOS for reliable OS detection
+	if runtime.GOOS == "linux" {
 		return registerLinux(exePath)
 	}
 	return registerMacOS(exePath)
-}
-
-func isLinux() bool {
-	// Check for Linux-specific paths
-	_, err := os.Stat("/usr/share/applications")
-	return err == nil
 }
 
 func registerLinux(exePath string) error {
@@ -110,7 +105,7 @@ func registerMacOS(exePath string) error {
 
 // UnregisterProtocolHandler removes the magnet protocol handler on Unix systems
 func UnregisterProtocolHandler() error {
-	if isLinux() {
+	if runtime.GOOS == "linux" {
 		return unregisterLinux()
 	}
 	return unregisterMacOS()
