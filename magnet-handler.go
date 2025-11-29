@@ -1196,7 +1196,7 @@ func main() {
 			}
 		}
 	} else if *savePathFlag {
-		log.Println("Warning: --save-path requires --remote-path to be specified")
+		log.Fatal("Error: --save-path requires --remote-path to be specified")
 	}
 
 	if *migrateFlag {
