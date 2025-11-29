@@ -15,8 +15,6 @@ import (
 	"regexp"
 	"strings"
 	"time"
-
-	"golang.org/x/sys/windows/registry"
 )
 
 const version = "1.0.0"
@@ -28,6 +26,7 @@ type Config struct {
 	DelugePassword string `json:"deluge_password"`
 	DelugeLabel    string `json:"deluge_label"`
 	JSONPath       string `json:"json_path"`
+	RemotePath     string `json:"remote_path,omitempty"` // Path to shared/network storage (optional)
 }
 
 // MagnetEntry represents a tracked magnet link
@@ -111,12 +110,17 @@ func DefaultConfig() Config {
 		DelugePassword: "deluge",
 		DelugeLabel:    "audiobooks",
 		JSONPath:       filepath.Join(homeDir, "magnet-list-local.json"), // Local by default
+		RemotePath:     GetDefaultRemotePath(),                           // Platform-specific default
 	}
 }
 
-// GetRemotePath returns the remote path for the database
-func GetRemotePath() string {
-	return "W:\\magnet-list-network.json"
+// GetRemotePath returns the remote path for the database from config
+// This is now configurable instead of hardcoded to W:\
+func GetRemotePath(config *Config) string {
+	if config != nil && config.RemotePath != "" {
+		return config.RemotePath
+	}
+	return GetDefaultRemotePath()
 }
 
 // ComputeChecksum generates SHA1 hash of database contents
@@ -562,9 +566,11 @@ func SaveDatabaseLocal(path string, db *MagnetDatabase) error {
 }
 
 // SaveJSONDatabase saves database locally with smart sync logic
-func SaveJSONDatabase(localPath string, updates *MagnetDatabase) error {
+func SaveJSONDatabase(localPath string, updates *MagnetDatabase, config *Config) error {
+	remotePath := GetRemotePath(config)
+
 	// Load and sync with remote first
-	merged, err := SyncWithRemote(localPath, GetRemotePath())
+	merged, err := SyncWithRemote(localPath, remotePath)
 	if err != nil {
 		log.Printf("Warning: Sync failed: %v", err)
 		// Try to at least load local
@@ -580,9 +586,8 @@ func SaveJSONDatabase(localPath string, updates *MagnetDatabase) error {
 	}
 
 	// Safety check: if merged database is empty but remote has data, use remote
-	if len(merged.Added) == 0 && len(merged.Retry) == 0 {
+	if len(merged.Added) == 0 && len(merged.Retry) == 0 && remotePath != "" {
 		log.Printf("Warning: Loaded database is empty, checking remote...")
-		remotePath := GetRemotePath()
 		remote, err := LoadJSONDatabase(remotePath)
 		if err == nil && (len(remote.Added) > 0 || len(remote.Retry) > 0) {
 			log.Printf("Found %d entries in remote, using that instead", len(remote.Added)+len(remote.Retry))
@@ -617,12 +622,13 @@ func SaveJSONDatabase(localPath string, updates *MagnetDatabase) error {
 	log.Printf("Saved to local: %s", localPath)
 
 	// Try to copy to remote (best effort, don't fail if network issue)
-	remotePath := GetRemotePath()
-	if err := SaveDatabaseLocal(remotePath, merged); err != nil {
-		log.Printf("Warning: Could not sync to remote: %v", err)
-		log.Printf("Changes saved locally, will sync on next operation")
-	} else {
-		log.Printf("Synced to remote: %s", remotePath)
+	if remotePath != "" {
+		if err := SaveDatabaseLocal(remotePath, merged); err != nil {
+			log.Printf("Warning: Could not sync to remote: %v", err)
+			log.Printf("Changes saved locally, will sync on next operation")
+		} else {
+			log.Printf("Synced to remote: %s", remotePath)
+		}
 	}
 
 	return nil
@@ -807,87 +813,6 @@ func (c *DelugeClient) GetTorrentsByLabel(label string) (map[string]map[string]i
 	return filtered, nil
 }
 
-// RegisterProtocolHandler registers the magnet protocol handler in Windows registry
-func RegisterProtocolHandler(exePath string) error {
-	// Create config file if it doesn't exist
-	config := DefaultConfig()
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return err
-	}
-
-	configPath := filepath.Join(homeDir, ".magnet-handler.conf")
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		if err := SaveConfig(config); err != nil {
-			return err
-		}
-		fmt.Printf("Created config file: %s\n", configPath)
-		fmt.Println("You can edit this file to customize settings")
-	}
-
-	// Register protocol handler
-	k, _, err := registry.CreateKey(registry.CLASSES_ROOT, `magnet`, registry.ALL_ACCESS)
-	if err != nil {
-		return err
-	}
-	defer k.Close()
-
-	if err := k.SetStringValue("", "URL:Magnet Protocol"); err != nil {
-		return err
-	}
-	if err := k.SetStringValue("URL Protocol", ""); err != nil {
-		return err
-	}
-
-	// Set default icon
-	k2, _, err := registry.CreateKey(registry.CLASSES_ROOT, `magnet\DefaultIcon`, registry.ALL_ACCESS)
-	if err != nil {
-		return err
-	}
-	defer k2.Close()
-	if err := k2.SetStringValue("", fmt.Sprintf("%s,0", exePath)); err != nil {
-		return err
-	}
-
-	// Set command
-	k3, _, err := registry.CreateKey(registry.CLASSES_ROOT, `magnet\shell\open\command`, registry.ALL_ACCESS)
-	if err != nil {
-		return err
-	}
-	defer k3.Close()
-
-	command := fmt.Sprintf(`"%s" "%%1"`, exePath)
-	if err := k3.SetStringValue("", command); err != nil {
-		return err
-	}
-
-	fmt.Println("✓ Magnet protocol handler registered successfully!")
-	fmt.Println("You can now click magnet links in Chrome and they will be added to Deluge")
-	return nil
-}
-
-// UnregisterProtocolHandler removes the magnet protocol handler
-func UnregisterProtocolHandler() error {
-	if err := registry.DeleteKey(registry.CLASSES_ROOT, `magnet\shell\open\command`); err != nil {
-		return err
-	}
-	if err := registry.DeleteKey(registry.CLASSES_ROOT, `magnet\shell\open`); err != nil {
-		return err
-	}
-	if err := registry.DeleteKey(registry.CLASSES_ROOT, `magnet\shell`); err != nil {
-		return err
-	}
-	if err := registry.DeleteKey(registry.CLASSES_ROOT, `magnet\DefaultIcon`); err != nil {
-		return err
-	}
-	if err := registry.DeleteKey(registry.CLASSES_ROOT, `magnet`); err != nil {
-		return err
-	}
-
-	fmt.Println("✓ Magnet protocol handler unregistered successfully")
-	return nil
-}
-
 // AddMagnetToDeluge is the main handler function
 func AddMagnetToDeluge(magnetURI string, config Config) error {
 	// Strict validation - no injection possible
@@ -984,7 +909,7 @@ func AddMagnetToDeluge(magnetURI string, config Config) error {
 	}
 
 	// Save to database
-	if err := SaveJSONDatabase(config.JSONPath, dbUpdate); err != nil {
+	if err := SaveJSONDatabase(config.JSONPath, dbUpdate, &config); err != nil {
 		log.Printf("Warning: Failed to save database: %v", err)
 	}
 
@@ -1093,12 +1018,14 @@ func BackfillFromDeluge(config Config) error {
 	log.Printf("Saved to local: %s", localPath)
 
 	// Try to sync to remote (best effort)
-	remotePath := GetRemotePath()
-	if err := SaveDatabaseLocal(remotePath, db); err != nil {
-		log.Printf("Warning: Could not sync to remote %s: %v", remotePath, err)
-		log.Println("Changes saved locally, will sync on next operation")
-	} else {
-		log.Printf("Synced to remote: %s", remotePath)
+	remotePath := GetRemotePath(&config)
+	if remotePath != "" {
+		if err := SaveDatabaseLocal(remotePath, db); err != nil {
+			log.Printf("Warning: Could not sync to remote %s: %v", remotePath, err)
+			log.Println("Changes saved locally, will sync on next operation")
+		} else {
+			log.Printf("Synced to remote: %s", remotePath)
+		}
 	}
 
 	log.Println(strings.Repeat("=", 60))
@@ -1180,7 +1107,7 @@ func ProcessRetryQueue(config Config) error {
 		}
 
 		// Save after each attempt
-		if err := SaveJSONDatabase(config.JSONPath, dbUpdate); err != nil {
+		if err := SaveJSONDatabase(config.JSONPath, dbUpdate, &config); err != nil {
 			log.Printf("Warning: Failed to save database: %v", err)
 		}
 
@@ -1205,16 +1132,14 @@ func main() {
 	backfillFlag := flag.Bool("backfill", false, "Backfill database from existing Deluge torrents")
 	migrateFlag := flag.Bool("migrate", false, "Migrate JSON files to new format with proper checksums")
 	versionFlag := flag.Bool("version", false, "Show version")
+	remotePathFlag := flag.String("remote-path", "", "Path to shared/network storage for syncing (e.g., /mnt/nas/magnet-list.json)")
+	savePathFlag := flag.Bool("save-path", false, "Save the remote-path to config file for future use")
 	flag.Parse()
 
-	// Setup logging - try W:\logs first, fallback to TEMP
-	logDir := "W:\\logs"
+	// Setup logging - use platform-specific log directory
+	logDir := GetDefaultLogDir()
 	if err := os.MkdirAll(logDir, 0755); err != nil {
-		// Fallback to TEMP if W: drive not accessible
-		logDir = os.Getenv("TEMP")
-		if logDir == "" {
-			logDir = "."
-		}
+		logDir = "."
 	}
 	logFile := filepath.Join(logDir, fmt.Sprintf("magnet-handler-%d.log", os.Getpid()))
 	f, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
@@ -1253,6 +1178,27 @@ func main() {
 		config = DefaultConfig()
 	}
 
+	// Apply command-line remote path override
+	if *remotePathFlag != "" {
+		config.RemotePath = *remotePathFlag
+		log.Printf("Using remote path: %s", config.RemotePath)
+
+		// Save to config if requested
+		if *savePathFlag {
+			if err := SaveConfig(config); err != nil {
+				log.Printf("Warning: Failed to save config: %v", err)
+			} else {
+				log.Printf("✓ Remote path saved to config file")
+			}
+			// If only saving the path (no other operation or magnet URI), exit cleanly
+			if len(flag.Args()) == 0 && !*migrateFlag && !*backfillFlag && !*retryFlag {
+				return
+			}
+		}
+	} else if *savePathFlag {
+		log.Println("Warning: --save-path requires --remote-path to be specified")
+	}
+
 	if *migrateFlag {
 		log.Println("Migrating both local and remote databases...")
 
@@ -1262,9 +1208,13 @@ func main() {
 		}
 
 		// Migrate remote
-		remotePath := GetRemotePath()
-		if err := MigrateFileFormat(remotePath); err != nil {
-			log.Printf("Error migrating remote: %v", err)
+		remotePath := GetRemotePath(&config)
+		if remotePath != "" {
+			if err := MigrateFileFormat(remotePath); err != nil {
+				log.Printf("Error migrating remote: %v", err)
+			}
+		} else {
+			log.Println("No remote path configured, skipping remote migration")
 		}
 
 		log.Println("✓ Migration complete")
