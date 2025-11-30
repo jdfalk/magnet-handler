@@ -920,6 +920,104 @@ func AddMagnetToDeluge(magnetURI string, config Config) error {
 	return nil
 }
 
+// SyncWithDeluge syncs database with Deluge, removing entries no longer in Deluge
+func SyncWithDeluge(config Config, dryRun bool) error {
+	log.Println("Syncing database with Deluge...")
+
+	// Create Deluge client
+	client := NewDelugeClient(config.DelugeHost, config.DelugePort, config.DelugePassword)
+
+	// Authenticate
+	if err := client.Authenticate(); err != nil {
+		return fmt.Errorf("authentication failed: %w", err)
+	}
+	log.Println("Authenticated with Deluge")
+
+	// Connect to daemon
+	if err := client.Connect(); err != nil {
+		return fmt.Errorf("connection failed: %w", err)
+	}
+	log.Println("Connected to Deluge daemon")
+
+	// Get torrents by label
+	log.Printf("Fetching torrents with label: %s", config.DelugeLabel)
+	torrents, err := client.GetTorrentsByLabel(config.DelugeLabel)
+	if err != nil {
+		return fmt.Errorf("failed to get torrents: %w", err)
+	}
+
+	log.Printf("Found %d torrents in Deluge", len(torrents))
+
+	// Load existing database
+	db, err := LoadJSONDatabase(config.JSONPath)
+	if err != nil {
+		return fmt.Errorf("failed to load database: %w", err)
+	}
+
+	log.Printf("Database has %d added, %d retry", len(db.Added), len(db.Retry))
+
+	// Find entries in database that are NOT in Deluge
+	orphaned := []string{}
+	for hash := range db.Added {
+		if _, exists := torrents[hash]; !exists {
+			orphaned = append(orphaned, hash)
+		}
+	}
+
+	log.Println(strings.Repeat("=", 60))
+	log.Println("Sync Results:")
+	log.Printf("  In Deluge: %d", len(torrents))
+	log.Printf("  In database: %d", len(db.Added)+len(db.Retry))
+	log.Printf("  Orphaned (in DB but not Deluge): %d", len(orphaned))
+	log.Println(strings.Repeat("=", 60))
+
+	if len(orphaned) > 0 {
+		if dryRun {
+			log.Println("\nDry run - would remove:")
+			for i, hash := range orphaned {
+				if i < 10 || i >= len(orphaned)-10 {
+					entry := db.Added[hash]
+					log.Printf("  %s - %s", hash[:8], entry.Title)
+				} else if i == 10 {
+					log.Printf("  ... (%d more) ...", len(orphaned)-20)
+				}
+			}
+			log.Println("\nRun with --sync to actually remove orphaned entries")
+		} else {
+			log.Printf("\nRemoving %d orphaned entries...", len(orphaned))
+			for _, hash := range orphaned {
+				delete(db.Added, hash)
+			}
+
+			// Save updated database
+			homeDir, _ := os.UserHomeDir()
+			localPath := filepath.Join(homeDir, "magnet-list-local.json")
+
+			if err := SaveDatabaseLocal(localPath, db); err != nil {
+				return fmt.Errorf("failed to save: %w", err)
+			}
+			log.Printf("Saved to local: %s", localPath)
+
+			// Sync to remote
+			remotePath := GetRemotePath(&config)
+			if remotePath != "" {
+				if err := SaveDatabaseLocal(remotePath, db); err != nil {
+					log.Printf("Warning: Could not sync to remote: %v", err)
+				} else {
+					log.Printf("Synced to remote: %s", remotePath)
+				}
+			}
+
+			log.Printf("\n✓ Removed %d orphaned entries", len(orphaned))
+			log.Printf("Database now has %d entries", len(db.Added)+len(db.Retry))
+		}
+	} else {
+		log.Println("\n✓ Database is in sync with Deluge")
+	}
+
+	return nil
+}
+
 // BackfillFromDeluge backfills database from existing Deluge torrents
 func BackfillFromDeluge(config Config) error {
 	log.Println("Backfilling database from Deluge...")
@@ -1028,12 +1126,33 @@ func BackfillFromDeluge(config Config) error {
 		}
 	}
 
+	// Check for duplicate IDs
+	idMap := make(map[int64][]string)
+	for hash, entry := range db.Added {
+		idMap[entry.ID] = append(idMap[entry.ID], hash)
+	}
+	for hash, entry := range db.Retry {
+		idMap[entry.ID] = append(idMap[entry.ID], hash)
+	}
+
+	duplicateIDs := 0
+	for id, hashes := range idMap {
+		if len(hashes) > 1 {
+			duplicateIDs++
+			log.Printf("WARNING: ID %d is used by %d entries: %v", id, len(hashes), hashes)
+		}
+	}
+
 	log.Println(strings.Repeat("=", 60))
 	log.Println("Backfill Summary:")
-	log.Printf("  New entries added: %d", added)
-	log.Printf("  Already tracked: %d", skipped)
-	log.Printf("  Total in database: %d", len(db.Added))
+	log.Printf("  Torrents processed: %d", added+skipped)
+	log.Printf("    New entries added: %d", added)
+	log.Printf("    Already tracked: %d", skipped)
+	log.Printf("  Total in database: %d (added: %d, retry: %d)", len(db.Added)+len(db.Retry), len(db.Added), len(db.Retry))
 	log.Printf("  Last sequence ID: %d", db.Metadata.LastSequence)
+	if duplicateIDs > 0 {
+		log.Printf("  ⚠ WARNING: %d duplicate IDs found!", duplicateIDs)
+	}
 	log.Println(strings.Repeat("=", 60))
 
 	return nil
@@ -1130,6 +1249,8 @@ func main() {
 	unregisterFlag := flag.Bool("unregister", false, "Unregister magnet protocol handler")
 	retryFlag := flag.Bool("retry", false, "Process all items in retry queue")
 	backfillFlag := flag.Bool("backfill", false, "Backfill database from existing Deluge torrents")
+	syncFlag := flag.Bool("sync", false, "Remove database entries for torrents no longer in Deluge")
+	syncDryRunFlag := flag.Bool("sync-dry-run", false, "Show what would be removed without actually removing")
 	migrateFlag := flag.Bool("migrate", false, "Migrate JSON files to new format with proper checksums")
 	versionFlag := flag.Bool("version", false, "Show version")
 	remotePathFlag := flag.String("remote-path", "", "Path to shared/network storage for syncing (e.g., /mnt/nas/magnet-list.json)")
