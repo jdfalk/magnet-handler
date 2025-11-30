@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/rand"
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
@@ -31,7 +32,8 @@ type Config struct {
 
 // MagnetEntry represents a tracked magnet link
 type MagnetEntry struct {
-	ID            int64  `json:"id"` // Unique sequence ID
+	UUID          string `json:"uuid"`         // Unique UUID (preferred)
+	ID            int64  `json:"id,omitempty"` // Deprecated: old sequence ID for migration
 	Title         string `json:"title"`
 	Hash          string `json:"hash"`
 	URI           string `json:"uri"`
@@ -153,6 +155,21 @@ func ComputeFileChecksum(path string) (string, error) {
 	return hex.EncodeToString(hash[:]), nil
 }
 
+// GenerateUUID generates a RFC4122 v4 UUID
+func GenerateUUID() string {
+	uuid := make([]byte, 16)
+	if _, err := rand.Read(uuid); err != nil {
+		// Fallback to timestamp-based ID if crypto/rand fails
+		return fmt.Sprintf("fallback-%d", time.Now().UnixNano())
+	}
+	// Set version 4 (random)
+	uuid[6] = (uuid[6] & 0x0f) | 0x40
+	// Set variant RFC4122
+	uuid[8] = (uuid[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x",
+		uuid[0:4], uuid[4:6], uuid[6:8], uuid[8:10], uuid[10:])
+}
+
 // MigrateFileFormat migrates a JSON file to the new format with proper checksums
 func MigrateFileFormat(path string) error {
 	log.Printf("Migrating file format: %s", path)
@@ -175,6 +192,26 @@ func MigrateFileFormat(path string) error {
 
 	// Update checksum and metadata
 	db.Metadata.Checksum = ComputeChecksum(db)
+	// Generate UUIDs for entries that don't have them
+	uuidsGenerated := 0
+	for hash, entry := range db.Added {
+		if entry.UUID == "" {
+			entry.UUID = GenerateUUID()
+			db.Added[hash] = entry
+			uuidsGenerated++
+		}
+	}
+	for hash, entry := range db.Retry {
+		if entry.UUID == "" {
+			entry.UUID = GenerateUUID()
+			db.Retry[hash] = entry
+			uuidsGenerated++
+		}
+	}
+	if uuidsGenerated > 0 {
+		log.Printf("Generated %d UUIDs for existing entries", uuidsGenerated)
+	}
+
 	db.Metadata.LastModified = time.Now().Format(time.RFC3339)
 
 	// Save with new format
@@ -342,6 +379,7 @@ func LoadJSONDatabase(path string) (*MagnetDatabase, error) {
 
 				// All V0 entries go into "added" since Python version didn't track retry
 				db.Added[hash] = MagnetEntry{
+					UUID:          GenerateUUID(),
 					ID:            nextID,
 					Title:         v0.Title,
 					Hash:          v0.Hash,
@@ -374,7 +412,7 @@ func LoadJSONDatabase(path string) (*MagnetDatabase, error) {
 			nextID := int64(1)
 			for hash, v1 := range dbV1.Added {
 				db.Added[hash] = MagnetEntry{
-					ID: nextID, Title: v1.Title, Hash: v1.Hash, URI: v1.URI,
+					UUID: GenerateUUID(), ID: nextID, Title: v1.Title, Hash: v1.Hash, URI: v1.URI,
 					AddedDate: v1.AddedDate, LastAttempt: v1.LastAttempt,
 					RetryCount: v1.RetryCount, SavePath: v1.SavePath, TorrentName: v1.TorrentName,
 				}
@@ -382,7 +420,7 @@ func LoadJSONDatabase(path string) (*MagnetDatabase, error) {
 			}
 			for hash, v1 := range dbV1.Retry {
 				db.Retry[hash] = MagnetEntry{
-					ID: nextID, Title: v1.Title, Hash: v1.Hash, URI: v1.URI,
+					UUID: GenerateUUID(), ID: nextID, Title: v1.Title, Hash: v1.Hash, URI: v1.URI,
 					AddedDate: v1.AddedDate, LastAttempt: v1.LastAttempt,
 					RetryCount: v1.RetryCount, SavePath: v1.SavePath, TorrentName: v1.TorrentName,
 				}
@@ -894,6 +932,7 @@ func AddMagnetToDeluge(magnetURI string, config Config) error {
 
 	// Create entry for JSON
 	entry := MagnetEntry{
+		UUID:        GenerateUUID(),
 		Title:       name,
 		Hash:        hash,
 		URI:         magnetURI,
@@ -1104,6 +1143,7 @@ func BackfillFromDeluge(config Config) error {
 		savePath, _ := torrentData["save_path"].(string)
 
 		entry := MagnetEntry{
+			UUID:        GenerateUUID(),
 			ID:          nextID,
 			Title:       name,
 			Hash:        hash,
