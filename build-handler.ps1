@@ -21,9 +21,13 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# Build the executable
+# Clean previous build
+Write-Host "`nCleaning previous build..." -ForegroundColor Cyan
+go clean
+
+# Build the executable (without specifying source file - builds all .go files in package)
 Write-Host "`nBuilding executable..." -ForegroundColor Cyan
-go build -ldflags="-s -w" -o magnet-handler.exe magnet-handler.go
+go build -ldflags="-s -w" -o magnet-handler.exe
 if ($LASTEXITCODE -ne 0) {
     Write-Host "✗ Build failed" -ForegroundColor Red
     exit 1
