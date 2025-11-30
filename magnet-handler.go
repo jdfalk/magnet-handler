@@ -31,15 +31,19 @@ type Config struct {
 
 // MagnetEntry represents a tracked magnet link
 type MagnetEntry struct {
-	ID          int64  `json:"id"` // Unique sequence ID
-	Title       string `json:"title"`
-	Hash        string `json:"hash"`
-	URI         string `json:"uri"`
-	AddedDate   string `json:"added_date"`
-	LastAttempt string `json:"last_attempt,omitempty"`
-	RetryCount  int    `json:"retry_count,omitempty"`
-	SavePath    string `json:"save_path,omitempty"`
-	TorrentName string `json:"torrent_name,omitempty"`
+	ID            int64  `json:"id"` // Unique sequence ID
+	Title         string `json:"title"`
+	Hash          string `json:"hash"`
+	URI           string `json:"uri"`
+	AddedDate     string `json:"added_date"`
+	FirstSeen     string `json:"first_seen,omitempty"`      // When first encountered
+	LastAttempt   string `json:"last_attempt,omitempty"`    // Last time we tried to add
+	Status        string `json:"status,omitempty"`          // success/failed
+	TorrentID     string `json:"torrent_id,omitempty"`      // Deluge's torrent ID
+	AddedToDeluge string `json:"added_to_deluge,omitempty"` // When Deluge accepted it
+	RetryCount    int    `json:"retry_count,omitempty"`
+	SavePath      string `json:"save_path,omitempty"`
+	TorrentName   string `json:"torrent_name,omitempty"`
 }
 
 // DatabaseMetadata tracks sync state
@@ -60,16 +64,19 @@ type MagnetDatabase struct {
 
 // V0: Python version - flat map of hash->entry (no added/retry wrapper)
 type MagnetEntryV0 struct {
-	Hash        string  `json:"hash"`
-	Title       string  `json:"title"`
-	TorrentName string  `json:"torrent_name"`
-	SavePath    string  `json:"save_path"`
-	State       string  `json:"state,omitempty"`
-	Progress    float64 `json:"progress,omitempty"`
-	Status      string  `json:"status,omitempty"`
-	TorrentID   string  `json:"torrent_id,omitempty"`
-	Backfilled  string  `json:"backfilled,omitempty"`
-	FirstSeen   string  `json:"first_seen,omitempty"`
+	Hash          string  `json:"hash"`
+	Title         string  `json:"title"`
+	URI           string  `json:"uri"`
+	TorrentName   string  `json:"torrent_name"`
+	SavePath      string  `json:"save_path"`
+	State         string  `json:"state,omitempty"`
+	Progress      float64 `json:"progress,omitempty"`
+	Status        string  `json:"status,omitempty"`
+	TorrentID     string  `json:"torrent_id,omitempty"`
+	AddedToDeluge string  `json:"added_to_deluge,omitempty"`
+	FirstSeen     string  `json:"first_seen,omitempty"`
+	LastAttempt   string  `json:"last_attempt,omitempty"`
+	Backfilled    string  `json:"backfilled,omitempty"`
 }
 
 // V1: First Go version with added/retry but no IDs
@@ -327,15 +334,26 @@ func LoadJSONDatabase(path string) (*MagnetDatabase, error) {
 		if errV0 == nil && len(dbV0) > 0 {
 			nextID := int64(1)
 			for hash, v0 := range dbV0 {
+				// Use URI from V0 if present, otherwise construct from hash
+				uri := v0.URI
+				if uri == "" {
+					uri = fmt.Sprintf("magnet:?xt=urn:btih:%s", v0.Hash)
+				}
+
 				// All V0 entries go into "added" since Python version didn't track retry
 				db.Added[hash] = MagnetEntry{
-					ID:          nextID,
-					Title:       v0.Title,
-					Hash:        v0.Hash,
-					URI:         fmt.Sprintf("magnet:?xt=urn:btih:%s", v0.Hash),
-					AddedDate:   v0.FirstSeen,
-					SavePath:    v0.SavePath,
-					TorrentName: v0.TorrentName,
+					ID:            nextID,
+					Title:         v0.Title,
+					Hash:          v0.Hash,
+					URI:           uri,
+					AddedDate:     v0.FirstSeen,
+					FirstSeen:     v0.FirstSeen,
+					LastAttempt:   v0.LastAttempt,
+					Status:        v0.Status,
+					TorrentID:     v0.TorrentID,
+					AddedToDeluge: v0.AddedToDeluge,
+					SavePath:      v0.SavePath,
+					TorrentName:   v0.TorrentName,
 				}
 				nextID++
 			}
@@ -1345,6 +1363,20 @@ func main() {
 	if *backfillFlag {
 		if err := BackfillFromDeluge(config); err != nil {
 			log.Fatalf("Failed to backfill from Deluge: %v", err)
+		}
+		return
+	}
+
+	if *syncDryRunFlag {
+		if err := SyncWithDeluge(config, true); err != nil {
+			log.Fatalf("Sync dry run failed: %v", err)
+		}
+		return
+	}
+
+	if *syncFlag {
+		if err := SyncWithDeluge(config, false); err != nil {
+			log.Fatalf("Sync failed: %v", err)
 		}
 		return
 	}
