@@ -1,0 +1,26 @@
+repository:
+  primary_language: go
+  visibility: public
+
+languages:
+  versions:
+    go: ["1.24", "1.25"]
+
+build:
+  platforms:
+    os: ["ubuntu-latest", "macos-latest", "windows-latest"]
+
+ci:
+  coverage:
+    threshold: 0
+    fail_on_drop: false
+  lint:
+    enabled: true
+
+release:
+  versioning:
+    default_branch_strategy:
+      main: patch
+  artifacts:
+    buckets:
+      binaries: dist/

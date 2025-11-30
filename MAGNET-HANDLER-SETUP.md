@@ -96,7 +96,7 @@ cat W:\magnet-handler.log
 
 ## File Locations
 
-- **Centralized JSON**: `W:\magnet-list.json` (or `\\172.16.2.30\bigdata\books\magnet-list.json`)
+- **Centralized JSON**: `W:\magnet-list.json` (or `\\192.168.0.1\share\magnet-list.json`)
 - **Handler Log**: `W:\magnet-handler.log`
 - **Temp Magnets**: `W:\temp-magnet.txt` (auto-cleaned)
 
@@ -125,7 +125,7 @@ cat W:\magnet-handler.log
 Make sure the W: drive is mapped:
 
 ```powershell
-net use W: \\172.16.2.30\bigdata
+net use W: \\192.168.0.1\share
 ```
 
 Or the script will try to create the directory automatically.

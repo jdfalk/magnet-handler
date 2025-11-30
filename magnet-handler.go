@@ -114,7 +114,7 @@ type MagnetDatabaseV2 struct {
 func DefaultConfig() Config {
 	homeDir, _ := os.UserHomeDir()
 	return Config{
-		DelugeHost:     "172.16.2.30",
+		DelugeHost:     "192.168.0.1",
 		DelugePort:     "8112",
 		DelugePassword: "deluge",
 		DelugeLabel:    "audiobooks",
@@ -1311,8 +1311,14 @@ func main() {
 	syncDryRunFlag := flag.Bool("sync-dry-run", false, "Show what would be removed without actually removing")
 	migrateFlag := flag.Bool("migrate", false, "Migrate JSON files to new format with proper checksums")
 	versionFlag := flag.Bool("version", false, "Show version")
+
+	// Configuration flags
+	delugeHostFlag := flag.String("host", "", "Deluge server host (e.g., 192.168.1.100)")
+	delugePortFlag := flag.String("port", "", "Deluge server port (default: 8112)")
+	delugePasswordFlag := flag.String("password", "", "Deluge server password")
+	delugeLabelFlag := flag.String("label", "", "Deluge label for torrents (e.g., audiobooks)")
 	remotePathFlag := flag.String("remote-path", "", "Path to shared/network storage for syncing (e.g., /mnt/nas/magnet-list.json)")
-	savePathFlag := flag.Bool("save-path", false, "Save the remote-path to config file for future use")
+	saveSettingsFlag := flag.Bool("save-settings", false, "Save command-line settings to config file for future use")
 	flag.Parse()
 
 	// Setup logging - use platform-specific log directory
@@ -1357,25 +1363,53 @@ func main() {
 		config = DefaultConfig()
 	}
 
-	// Apply command-line remote path override
+	// Apply command-line overrides
+	hasOverrides := false
+	if *delugeHostFlag != "" {
+		config.DelugeHost = *delugeHostFlag
+		hasOverrides = true
+	}
+	if *delugePortFlag != "" {
+		config.DelugePort = *delugePortFlag
+		hasOverrides = true
+	}
+	if *delugePasswordFlag != "" {
+		config.DelugePassword = *delugePasswordFlag
+		hasOverrides = true
+	}
+	if *delugeLabelFlag != "" {
+		config.DelugeLabel = *delugeLabelFlag
+		hasOverrides = true
+	}
 	if *remotePathFlag != "" {
 		config.RemotePath = *remotePathFlag
-		log.Printf("Using remote path: %s", config.RemotePath)
+		hasOverrides = true
+	}
 
-		// Save to config if requested
-		if *savePathFlag {
-			if err := SaveConfig(config); err != nil {
-				log.Printf("Warning: Failed to save config: %v", err)
-			} else {
-				log.Printf("✓ Remote path saved to config file")
-			}
-			// If only saving the path (no other operation or magnet URI), exit cleanly
-			if len(flag.Args()) == 0 && !*migrateFlag && !*backfillFlag && !*retryFlag {
-				return
-			}
+	// Save settings if requested
+	if *saveSettingsFlag {
+		if !hasOverrides {
+			log.Fatal("Error: --save-settings requires at least one setting flag (--host, --port, --password, --label, or --remote-path)")
 		}
-	} else if *savePathFlag {
-		log.Fatal("Error: --save-path requires --remote-path to be specified")
+		if err := SaveConfig(config); err != nil {
+			log.Printf("Warning: Failed to save config: %v", err)
+		} else {
+			log.Printf("Settings saved to config file:")
+			log.Printf("  Host: %s", config.DelugeHost)
+			log.Printf("  Port: %s", config.DelugePort)
+			log.Printf("  Label: %s", config.DelugeLabel)
+			log.Printf("  Remote path: %s", config.RemotePath)
+		}
+		// If only saving settings (no other operation or magnet URI), exit cleanly
+		if len(flag.Args()) == 0 && !*migrateFlag && !*backfillFlag && !*retryFlag && !*syncFlag && !*syncDryRunFlag {
+			return
+		}
+	}
+
+	// Warn if using default IP (likely not correct)
+	if config.DelugeHost == "192.168.0.1" && !hasOverrides {
+		log.Printf("WARNING: Using default Deluge host (192.168.0.1) - this is probably not correct!")
+		log.Printf("         Set your actual Deluge server IP with: --host YOUR_IP --save-settings")
 	}
 
 	if *migrateFlag {

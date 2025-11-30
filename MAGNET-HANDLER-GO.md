@@ -83,7 +83,7 @@ The config file is located at `~/.magnet-handler.conf`:
 
 ```json
 {
-  "deluge_host": "172.16.2.30",
+  "deluge_host": "192.168.0.1",
   "deluge_port": "8112",
   "deluge_password": "deluge",
   "deluge_label": "audiobooks",
