@@ -18,7 +18,7 @@ import (
 	"time"
 )
 
-const version = "1.0.0"
+const version = "1.0.1"
 
 // Config represents the handler configuration
 type Config struct {
