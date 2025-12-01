@@ -112,7 +112,7 @@ type MagnetDatabaseV2 struct {
 
 // DefaultConfig returns default configuration
 func DefaultConfig() Config {
-	homeDir, _ := os.UserHomeDir()
+	homeDir, _ := getHomeDir()
 	return Config{
 		DelugeHost:     "192.168.0.1",
 		DelugePort:     "8112",
@@ -230,9 +230,22 @@ func MigrateFileFormat(path string) error {
 	return nil
 }
 
+// getHomeDir returns the user's home directory, checking env vars first for testability
+func getHomeDir() (string, error) {
+	// Check environment variables first (for testing)
+	if home := os.Getenv("HOME"); home != "" {
+		return home, nil
+	}
+	if userProfile := os.Getenv("USERPROFILE"); userProfile != "" {
+		return userProfile, nil
+	}
+	// Fall back to os.UserHomeDir()
+	return os.UserHomeDir()
+}
+
 // LoadConfig loads configuration from file
 func LoadConfig() (Config, error) {
-	homeDir, err := os.UserHomeDir()
+	homeDir, err := getHomeDir()
 	if err != nil {
 		return DefaultConfig(), err
 	}
@@ -254,7 +267,7 @@ func LoadConfig() (Config, error) {
 
 // SaveConfig saves configuration to file
 func SaveConfig(config Config) error {
-	homeDir, err := os.UserHomeDir()
+	homeDir, err := getHomeDir()
 	if err != nil {
 		return err
 	}
@@ -1059,7 +1072,7 @@ func SyncWithDeluge(config Config, dryRun bool) error {
 			}
 
 			// Save updated database
-			homeDir, _ := os.UserHomeDir()
+			homeDir, _ := getHomeDir()
 			localPath := filepath.Join(homeDir, "magnet-list-local.json")
 
 			if err := SaveDatabaseLocal(localPath, db); err != nil {
@@ -1177,7 +1190,7 @@ func BackfillFromDeluge(config Config) error {
 	db.Metadata.LastSequence = nextID - 1
 
 	// Always save to local first (fast, reliable)
-	homeDir, _ := os.UserHomeDir()
+	homeDir, _ := getHomeDir()
 	localPath := filepath.Join(homeDir, "magnet-list-local.json")
 
 	if err := SaveDatabaseLocal(localPath, db); err != nil {
