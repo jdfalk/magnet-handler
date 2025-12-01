@@ -292,10 +292,15 @@ func TestLoadConfigMissingFile(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	// Override home directory for testing
+	// Override home directory for testing (both Unix HOME and Windows USERPROFILE)
 	originalHome := os.Getenv("HOME")
+	originalUserProfile := os.Getenv("USERPROFILE")
 	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", originalHome)
+	os.Setenv("USERPROFILE", tmpDir)
+	defer func() {
+		os.Setenv("HOME", originalHome)
+		os.Setenv("USERPROFILE", originalUserProfile)
+	}()
 
 	// Load config - should return default since file doesn't exist
 	// Note: LoadConfig returns default config (not error) when file is missing
