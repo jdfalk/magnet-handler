@@ -177,13 +177,13 @@ func TestDefaultConfig(t *testing.T) {
 // Test GetRemotePath
 func TestGetRemotePath(t *testing.T) {
 	tests := []struct {
-		name       string
-		config     *Config
+		name        string
+		config      *Config
 		expectEmpty bool
 	}{
 		{
-			name:       "nil config returns default",
-			config:     nil,
+			name:        "nil config returns default",
+			config:      nil,
 			expectEmpty: GetDefaultRemotePath() == "",
 		},
 		{
