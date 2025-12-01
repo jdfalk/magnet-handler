@@ -7,8 +7,12 @@ on:
         branches: [main, develop]
 
 permissions:
-    contents: read
-    packages: read
+    actions: write
+    attestations: write
+    checks: write
+    contents: write
+    packages: write
+    id-token: write
     security-events: write
 
 jobs:
