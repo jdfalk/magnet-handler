@@ -915,22 +915,7 @@ func AddMagnetToDeluge(magnetURI string, config Config) error {
 	// Create Deluge client
 	client := NewDelugeClient(config.DelugeHost, config.DelugePort, config.DelugePassword)
 
-	// Authenticate
-	if err := client.Authenticate(); err != nil {
-		return fmt.Errorf("authentication failed: %w", err)
-	}
-	log.Println("Authenticated with Deluge")
-
-	// Connect to daemon
-	if err := client.Connect(); err != nil {
-		return fmt.Errorf("connection failed: %w", err)
-	}
-	log.Println("Connected to Deluge daemon")
-
-	// Add magnet
-	err = client.AddMagnet(magnetURI, config.DelugeLabel)
-
-	// Create entry for JSON
+	// Create entry for JSON (do this first so we can save it even if connection fails)
 	entry := MagnetEntry{
 		UUID:        GenerateUUID(),
 		Title:       name,
@@ -946,6 +931,33 @@ func AddMagnetToDeluge(magnetURI string, config Config) error {
 		Added: make(map[string]MagnetEntry),
 		Retry: make(map[string]MagnetEntry),
 	}
+
+	// Authenticate
+	if err = client.Authenticate(); err != nil {
+		log.Printf("✗ Authentication failed: %v", err)
+		log.Printf("  Added to retry queue: %s", name)
+		dbUpdate.Retry[hash] = entry
+		if saveErr := SaveJSONDatabase(config.JSONPath, dbUpdate, &config); saveErr != nil {
+			log.Printf("Warning: Failed to save database: %v", saveErr)
+		}
+		return fmt.Errorf("authentication failed: %w", err)
+	}
+	log.Println("Authenticated with Deluge")
+
+	// Connect to daemon
+	if err := client.Connect(); err != nil {
+		log.Printf("✗ Connection failed: %v", err)
+		log.Printf("  Added to retry queue: %s", name)
+		dbUpdate.Retry[hash] = entry
+		if saveErr := SaveJSONDatabase(config.JSONPath, dbUpdate, &config); saveErr != nil {
+			log.Printf("Warning: Failed to save database: %v", saveErr)
+		}
+		return fmt.Errorf("connection failed: %w", err)
+	}
+	log.Println("Connected to Deluge daemon")
+
+	// Add magnet
+	err = client.AddMagnet(magnetURI, config.DelugeLabel)
 
 	if err != nil {
 		// Check if it's a duplicate error
