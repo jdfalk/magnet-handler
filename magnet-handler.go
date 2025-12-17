@@ -1358,6 +1358,11 @@ func main() {
 		log.SetOutput(io.MultiWriter(os.Stdout, f))
 	}
 
+	// Log startup
+	log.Printf("=== magnet-handler started at %s ===", time.Now().Format(time.RFC3339))
+	log.Printf("Args: %v", os.Args)
+	log.Printf("Log file: %s", logFile)
+
 	if *versionFlag {
 		fmt.Printf("magnet-handler version %s\n", version)
 		return
@@ -1501,4 +1506,13 @@ func main() {
 	if err := AddMagnetToDeluge(magnetURI, config); err != nil {
 		log.Fatalf("Error: %v", err)
 	}
+
+	// Keep the app open for a moment so we can see output
+	// This is especially useful when launched from browsers
+	log.Println("\n=== Magnet Handler Complete ===")
+	log.Println("Keeping window open for 90 seconds to view results...")
+	log.Println("Press Ctrl+C to close earlier if needed")
+
+	// Sleep for 90 seconds to allow viewing the output
+	time.Sleep(90 * time.Second)
 }

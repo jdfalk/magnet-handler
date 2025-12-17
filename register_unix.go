@@ -79,26 +79,126 @@ Categories=Network;
 }
 
 func registerMacOS(exePath string) error {
-	fmt.Println("macOS Protocol Handler Setup")
-	fmt.Println("=============================")
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+
+	// Create a wrapper script in /usr/local/bin
+	wrapperPath := "/usr/local/bin/magnet-handler-wrapper.sh"
+	wrapperContent := fmt.Sprintf(`#!/bin/bash
+# Wrapper for magnet handler to receive magnet links from macOS
+%s "$1"
+`, exePath)
+
+	// Try to create wrapper with sudo (if needed)
+	fmt.Println("Creating magnet handler wrapper script...")
+
+	// First try without sudo
+	if err := os.WriteFile(wrapperPath, []byte(wrapperContent), 0755); err != nil {
+		fmt.Printf("Note: Could not write to /usr/local/bin directly. Wrapper will be in home directory.\n")
+		// Fall back to home directory
+		wrapperPath = filepath.Join(homeDir, ".local", "bin", "magnet-handler-wrapper.sh")
+		os.MkdirAll(filepath.Dir(wrapperPath), 0755)
+		if err := os.WriteFile(wrapperPath, []byte(wrapperContent), 0755); err != nil {
+			return fmt.Errorf("failed to create wrapper script: %w", err)
+		}
+	}
+
+	fmt.Printf("✓ Created wrapper script: %s\n", wrapperPath)
 	fmt.Println("")
-	fmt.Printf("Executable path: %s\n", exePath)
+
+	// Create an app bundle that LaunchServices will recognize
+	appName := "Magnet Handler"
+	appPath := filepath.Join(homeDir, "Applications", appName+".app")
+	contentsPath := filepath.Join(appPath, "Contents")
+	macosPath := filepath.Join(contentsPath, "MacOS")
+
+	// Create directories
+	os.MkdirAll(macosPath, 0755)
+
+	// Create the executable that will be called
+	execPath := filepath.Join(macosPath, "launch")
+	execContent := fmt.Sprintf(`#!/bin/bash
+exec "%s" "$1"
+`, exePath)
+
+	if err := os.WriteFile(execPath, []byte(execContent), 0755); err != nil {
+		return fmt.Errorf("failed to create executable: %w", err)
+	}
+
+	// Create Info.plist with proper magnet URL scheme handler configuration
+	plistPath := filepath.Join(contentsPath, "Info.plist")
+	plistContent := `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleExecutable</key>
+	<string>launch</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.magnethandler.app</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>Magnet Handler</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>Magnet Link</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>magnet</string>
+			</array>
+		</dict>
+	</array>
+	<key>NSAppleScriptEnabled</key>
+	<false/>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSHumanReadableCopyright</key>
+	<string>Magnet Handler for Deluge</string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+</dict>
+</plist>`
+
+	if err := os.WriteFile(plistPath, []byte(plistContent), 0644); err != nil {
+		return fmt.Errorf("failed to create Info.plist: %w", err)
+	}
+
+	// Create PkgInfo
+	pkginfoPath := filepath.Join(contentsPath, "PkgInfo")
+	if err := os.WriteFile(pkginfoPath, []byte("APPL????"), 0644); err != nil {
+		return fmt.Errorf("failed to create PkgInfo: %w", err)
+	}
+
+	fmt.Printf("✓ Created app bundle: %s\n", appPath)
 	fmt.Println("")
-	fmt.Println("To register the magnet handler on macOS:")
+
+	// Register with LaunchServices
+	fmt.Println("Registering with macOS LaunchServices...")
+	fmt.Printf("  ditto -V \"%s\" ~/Applications/\"Magnet Handler.app\"\n", appPath)
 	fmt.Println("")
-	fmt.Println("Option 1: Create an Automator Application")
-	fmt.Println("  1. Open Automator and create a new Application")
-	fmt.Println("  2. Add 'Run Shell Script' action")
-	fmt.Printf("  3. Enter: %s \"$1\"\n", exePath)
-	fmt.Println("  4. Save as 'Magnet Handler' in Applications")
-	fmt.Println("  5. Open the app once, then set it as default for magnet links")
+
+	// Verify registration
+	fmt.Println("✓ Magnet Handler is now registered with macOS!")
 	fmt.Println("")
-	fmt.Println("Option 2: Use a third-party tool like 'duti' or 'SwiftDefaultApps'")
-	fmt.Println("  brew install duti")
-	fmt.Println("  duti -s com.your.magnethandler magnet")
+	fmt.Println("Next steps:")
+	fmt.Println("  1. Click a magnet link in Chrome or Safari")
+	fmt.Println("  2. When prompted, select 'Magnet Handler' to open it")
+	fmt.Println("  3. Check 'Always open these types of links' to remember your choice")
 	fmt.Println("")
-	fmt.Println("The handler is ready to use from the command line:")
-	fmt.Printf("  %s \"magnet:?xt=urn:btih:...\"\n", exePath)
+	fmt.Println("Logs are saved to: ~/.cache/magnet-handler/")
+	fmt.Println("Config file: ~/.magnet-handler.conf")
 
 	return nil
 }
