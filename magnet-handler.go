@@ -243,17 +243,29 @@ func getHomeDir() (string, error) {
 	return os.UserHomeDir()
 }
 
-// LoadConfig loads configuration from file
+// LoadConfig loads configuration from file, preferring ~/.magnet-handler/mh.yaml
 func LoadConfig() (Config, error) {
 	homeDir, err := getHomeDir()
 	if err != nil {
 		return DefaultConfig(), err
 	}
 
-	configPath := filepath.Join(homeDir, ".magnet-handler.conf")
-	data, err := os.ReadFile(configPath)
+	// Try new location first: ~/.magnet-handler/mh.yaml
+	newConfigPath := filepath.Join(homeDir, ".magnet-handler", "mh.yaml")
+	data, err := os.ReadFile(newConfigPath)
+	if err == nil {
+		var config Config
+		if err := json.Unmarshal(data, &config); err != nil {
+			return DefaultConfig(), err
+		}
+		return config, nil
+	}
+
+	// Fall back to old location: ~/.magnet-handler.conf
+	oldConfigPath := filepath.Join(homeDir, ".magnet-handler.conf")
+	data, err = os.ReadFile(oldConfigPath)
 	if err != nil {
-		// Return default config if file doesn't exist
+		// Return default config if neither file exists
 		return DefaultConfig(), nil
 	}
 
@@ -265,14 +277,20 @@ func LoadConfig() (Config, error) {
 	return config, nil
 }
 
-// SaveConfig saves configuration to file
+// SaveConfig saves configuration to file in ~/.magnet-handler/mh.yaml
 func SaveConfig(config Config) error {
 	homeDir, err := getHomeDir()
 	if err != nil {
 		return err
 	}
 
-	configPath := filepath.Join(homeDir, ".magnet-handler.conf")
+	// Create .magnet-handler directory if it doesn't exist
+	mhDir := filepath.Join(homeDir, ".magnet-handler")
+	if err := os.MkdirAll(mhDir, 0755); err != nil {
+		return err
+	}
+
+	configPath := filepath.Join(mhDir, "mh.yaml")
 	data, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
 		return err

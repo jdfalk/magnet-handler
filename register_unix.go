@@ -244,19 +244,9 @@ func unregisterMacOS() error {
 
 // GetDefaultLogDir returns the default log directory for Unix systems
 func GetDefaultLogDir() string {
-	// Try XDG_CACHE_HOME first
-	cacheDir := os.Getenv("XDG_CACHE_HOME")
-	if cacheDir != "" {
-		logDir := filepath.Join(cacheDir, "magnet-handler")
-		if err := os.MkdirAll(logDir, 0755); err == nil {
-			return logDir
-		}
-	}
-
-	// Fall back to ~/.cache/magnet-handler
 	homeDir, err := os.UserHomeDir()
 	if err == nil {
-		logDir := filepath.Join(homeDir, ".cache", "magnet-handler")
+		logDir := filepath.Join(homeDir, ".magnet-handler", "logs")
 		if err := os.MkdirAll(logDir, 0755); err == nil {
 			return logDir
 		}

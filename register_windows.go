@@ -93,11 +93,15 @@ func UnregisterProtocolHandler() error {
 
 // GetDefaultLogDir returns the default log directory for Windows
 func GetDefaultLogDir() string {
-	logDir := os.Getenv("TEMP")
-	if logDir == "" {
-		logDir = "."
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "."
 	}
-	return logDir
+	logDir := filepath.Join(homeDir, ".magnet-handler", "logs")
+	if err := os.MkdirAll(logDir, 0755); err == nil {
+		return logDir
+	}
+	return "."
 }
 
 // GetDefaultRemotePath returns the default remote path for Windows
