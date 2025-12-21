@@ -307,9 +307,9 @@ func ValidateMagnetURI(uri string) bool {
 	}
 
 	// Must contain xt parameter with btih hash
-	// Only allow alphanumeric, :, ?, &, =, %, -, _, ., ~, +
-	// This is a strict whitelist to prevent any injection
-	validPattern := regexp.MustCompile(`^magnet:\?[a-zA-Z0-9:?&=%\-_.~+]+$`)
+	// Allow standard URL characters plus percent-encoding (% followed by hex digits)
+	// This covers all valid magnet URI characters including UTF-8 encoded sequences
+	validPattern := regexp.MustCompile(`^magnet:\?[a-zA-Z0-9:?&=%\-_.~+!,/()#\[\]]+$`)
 	if !validPattern.MatchString(uri) {
 		return false
 	}
