@@ -21,7 +21,7 @@ permissions:
 jobs:
     release:
         name: Build and Release
-        uses: jdfalk/ghcommon/.github/workflows/reusable-release.yml@main
+        uses: jdfalk/ghcommon/.github/workflows/reusable-release.yml@bc6380dd1cfb1a3b8eb24c27d6cfe4a887562b5b # main
         with:
             build-target: "go"
             go-enabled: true
