@@ -8,7 +8,7 @@ updates:
   schedule:
     interval: weekly
     day: tuesday
-    time: 09:00
+    time: "09:00"
     timezone: America/New_York
   open-pull-requests-limit: 3
   commit-message:
@@ -25,7 +25,7 @@ updates:
   schedule:
     interval: weekly
     day: wednesday
-    time: 09:00
+    time: "09:00"
     timezone: America/New_York
   open-pull-requests-limit: 5
   commit-message:
@@ -39,7 +39,7 @@ updates:
   schedule:
     interval: weekly
     day: friday
-    time: 09:00
+    time: "09:00"
     timezone: America/New_York
   open-pull-requests-limit: 5
   commit-message:
