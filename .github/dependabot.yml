@@ -1,38 +1,50 @@
-# Dependabot Configuration
-# version: 1.0.0
-# guid: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+# Smart Dependabot configuration for bootstrap-magnet-handler.nJ1V9R
+# Automatically detected: go, python, github-actions
 
 version: 2
-
-multi-ecosystem-groups:
-  dependencies:
-    schedule:
-      interval: weekly
-      day: tuesday
-      time: "10:00"
-      timezone: America/New_York
-    labels:
-      - dependencies
-      - dependabot
-    commit-message:
-      prefix: deps
-      include: scope
-
 updates:
-  # Github Actions
-  - package-ecosystem: github-actions
-    directory: /
-    patterns: ["*"]
-    multi-ecosystem-group: dependencies
-    labels:
-      - github-actions
-      - ci-cd
-
-  # Gomod
-  - package-ecosystem: gomod
-    directory: /
-    patterns: ["*"]
-    multi-ecosystem-group: dependencies
-    labels:
-      - tech:go
-
+- package-ecosystem: pip
+  directory: /
+  schedule:
+    interval: weekly
+    day: tuesday
+    time: 09:00
+    timezone: America/New_York
+  open-pull-requests-limit: 3
+  commit-message:
+    prefix: python
+    include: scope
+  labels:
+  - dependencies
+  - priority-medium
+  allow:
+  - dependency-type: direct
+  - dependency-type: indirect
+- package-ecosystem: gomod
+  directory: /
+  schedule:
+    interval: weekly
+    day: wednesday
+    time: 09:00
+    timezone: America/New_York
+  open-pull-requests-limit: 5
+  commit-message:
+    prefix: go
+    include: scope
+  labels:
+  - dependencies
+  - priority-medium
+- package-ecosystem: github-actions
+  directory: /
+  schedule:
+    interval: weekly
+    day: friday
+    time: 09:00
+    timezone: America/New_York
+  open-pull-requests-limit: 5
+  commit-message:
+    prefix: ci
+    include: scope
+  labels:
+  - dependencies
+  - priority-high
