@@ -20,5 +20,5 @@ jobs:
         name: Continuous Integration
         uses: falkcorp/github-common/.github/workflows/reusable-ci.yml@378e23a96c00d719075732dd2af4de45f7523cbb # v1.10.4
         with:
-            go-version: "1.24"
+            go-version: "1.26"
         secrets: inherit
