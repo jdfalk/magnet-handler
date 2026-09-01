@@ -21,7 +21,7 @@ permissions:
 jobs:
     release:
         name: Build and Release
-        uses: falkcorp/github-common/.github/workflows/reusable-release.yml@378e23a96c00d719075732dd2af4de45f7523cbb # v1.10.4
+        uses: falkcorp/github-common/.github/workflows/reusable-release.yml@d0c3326b96557c8ea9117c1c196b628e5e028186 # v1.10.8
         with:
             build-target: "go"
             go-enabled: true
